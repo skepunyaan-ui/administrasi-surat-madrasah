@@ -16,8 +16,14 @@
  <form class="loginbox" id="loginForm">
   <div class="brandmark">DH</div><h1>Administrasi Surat</h1><p class="muted">MA Darul Hikmah Tamansari</p>
   <label for="username">Email akun petugas</label><input id="username" type="email" placeholder="Email yang terdaftar di Supabase" autocomplete="username" required>
-  <label for="password">Kata sandi</label><input id="password" type="password" placeholder="Kata sandi admin" autocomplete="current-password" required>
-  <button type="submit">Masuk</button><p id="loginError" class="muted" role="alert"></p>
+  <label for="password">Kata sandi</label><input id="password" type="password" placeholder="Kata sandi akun" autocomplete="current-password" required>
+  <button type="submit">Masuk</button><button type="button" class="secondary" id="forgotBtn">Lupa kata sandi?</button><p id="loginError" class="muted" role="alert"></p>
+ </form>
+ <form class="loginbox hidden" id="recoveryForm">
+  <div class="brandmark">DH</div><h1>Atur Kata Sandi Baru</h1><p class="muted">Buat kata sandi baru untuk akun petugas madrasah.</p>
+  <label for="resetPass">Kata sandi baru (minimal 8 karakter)</label><input id="resetPass" type="password" minlength="8" autocomplete="new-password" required>
+  <label for="resetPass2">Ulangi kata sandi baru</label><input id="resetPass2" type="password" minlength="8" autocomplete="new-password" required>
+  <button type="submit">Simpan Kata Sandi Baru</button><p id="recoveryMsg" class="muted" role="alert"></p>
  </form>
 </div>
 <div id="app" class="app hidden">
@@ -101,6 +107,8 @@ async function signIn(e){e.preventDefault();$('loginError').textContent='Memerik
  $('loginError').textContent='';$('password').value='';sessionStorage.setItem(AUTH,'1');appView();await loadData();
 }
 $('loginForm').addEventListener('submit',signIn);
+ $('forgotBtn').onclick=async()=>{const email=$('username').value.trim();if(!email){$('loginError').textContent='Masukkan email akun terlebih dahulu.';$('username').focus();return}$('loginError').textContent='Mengirim email pemulihan...';const {error}=await db.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});$('loginError').textContent=error?'Gagal mengirim email pemulihan. Periksa alamat email dan pengaturan Supabase.':'Jika email terdaftar, tautan pemulihan akan dikirim. Periksa kotak masuk dan folder Spam.'};
+ $('recoveryForm').addEventListener('submit',async e=>{e.preventDefault();const a=$('resetPass').value,b=$('resetPass2').value;if(a.length<8){$('recoveryMsg').textContent='Kata sandi minimal 8 karakter.';return}if(a!==b){$('recoveryMsg').textContent='Kedua kata sandi belum sama.';return}$('recoveryMsg').textContent='Menyimpan kata sandi...';const {error}=await db.auth.updateUser({password:a});if(error){$('recoveryMsg').textContent='Gagal menyimpan kata sandi. Tautan mungkin sudah kedaluwarsa; minta tautan baru.';return}await db.auth.signOut();user=null;history.replaceState(null,'',location.pathname);$('recoveryForm').classList.add('hidden');$('loginForm').classList.remove('hidden');$('recoveryMsg').textContent='';$('loginError').textContent='Kata sandi berhasil diperbarui. Silakan masuk dengan kata sandi baru.';$('password').value='';});
 $('logout').onclick=async()=>{await db.auth.signOut();sessionStorage.removeItem(AUTH);user=null;loginView()};
 function tab(name){document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));['masuk','keluar','buat','sampah','pengaturan'].forEach(n=>$(n).classList.toggle('hidden',n!==name))}
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.tab));
@@ -134,7 +142,9 @@ function download(name,content,type){let a=document.createElement('a'),u=URL.cre
 $('restoreBtn').onclick=()=>$('restoreFile').click();$('restoreFile').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{const o=JSON.parse(await f.text());if(!Array.isArray(o.data)||!Array.isArray(o.trash))throw Error();if(!confirm('Pulihkan cadangan? Data saat ini akan ditambah dengan data cadangan.'))return;for(const x of [...o.data,...o.trash])await saveItem({...x,id:crypto.randomUUID()},Boolean(o.trash.includes(x)));notify('Proses pemulihan selesai.')}catch{notify('File cadangan tidak valid atau gagal dipulihkan.')}e.target.value=''};
 function updateDraft(){const val=id=>$(id).value.trim();const safe=s=>esc(s).replace(/\n/g,'<br>');$('draftPaper').innerHTML='<div class="line"><h2>MA DARUL HIKMAH TAMANSARI</h2><b>'+esc(val('dJenis').toUpperCase())+'</b></div><p>Nomor: '+esc(val('dNomor')||'-')+'</p><p>Perihal: '+esc(val('dPerihal')||'-')+'</p><p>'+esc(val('dTujuan')||'-')+'</p><p>Dengan hormat,</p><p>'+safe(val('dIsi')||'Isi surat akan tampil di sini.')+'</p><p style="text-align:right">'+esc(val('dTanggal')||'-')+'<br><br><br><b>'+esc(val('dNama')||'-')+'</b><br>'+esc(val('dJabatan')||'-')+'</p>'}
 $('previewDraft').onclick=updateDraft;$('printDraft').onclick=()=>{updateDraft();window.print()};
-(async()=>{const {data:sessionData}=await db.auth.getSession();if(sessionData.session){user=sessionData.session.user;const {data:staff}=await db.from('madrasah_staff').select('role,enabled').eq('user_id',user.id).maybeSingle();if(staff?.enabled){appView();await loadData();return}await db.auth.signOut()}loginView()})();
+const recoveryMode=()=>new URLSearchParams(location.hash.slice(1)).get('type')==='recovery';
+ db.auth.onAuthStateChange((event,session)=>{if(event==='PASSWORD_RECOVERY'||recoveryMode()){user=session?.user||user;$('loginForm').classList.add('hidden');$('recoveryForm').classList.remove('hidden');loginView()}});
+ (async()=>{const {data:sessionData}=await db.auth.getSession();if(recoveryMode()){user=sessionData.session?.user||null;loginView();$('loginForm').classList.add('hidden');$('recoveryForm').classList.remove('hidden');if(!user)$('recoveryMsg').textContent='Sesi pemulihan tidak ditemukan. Minta tautan pemulihan yang baru.';return}if(sessionData.session){user=sessionData.session.user;const {data:staff}=await db.from('madrasah_staff').select('role,enabled').eq('user_id',user.id).maybeSingle();if(staff?.enabled){appView();await loadData();return}await db.auth.signOut()}loginView()})();
 })();
 </script>
 </body>

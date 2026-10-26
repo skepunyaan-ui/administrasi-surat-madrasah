@@ -15,7 +15,7 @@
 <div id="login" class="login">
  <form class="loginbox" id="loginForm">
   <div class="brandmark">DH</div><h1>Administrasi Surat</h1><p class="muted">MA Darul Hikmah Tamansari</p>
-  <label for="username">Nama pengguna</label><input id="username" value="admin" autocomplete="username" required>
+  <label for="username">Email akun petugas</label><input id="username" type="email" placeholder="Email yang terdaftar di Supabase" autocomplete="username" required>
   <label for="password">Kata sandi</label><input id="password" type="password" placeholder="Kata sandi admin" autocomplete="current-password" required>
   <button type="submit">Masuk</button><p id="loginError" class="muted" role="alert"></p>
  </form>
@@ -45,7 +45,7 @@
   <div id="draftPaper" class="draft-paper"><div class="line"><h2>MA DARUL HIKMAH TAMANSARI</h2><b>SURAT</b></div><p>Nomor: -</p><p>Perihal: -</p><p>Yth. -</p><p>Dengan hormat,</p><p>Isi surat akan tampil di sini.</p><p style="text-align:right">Tamansari, -<br><br><br><b>-</b><br>-</p></div>
  </section>
  <section id="sampah" class="panel hidden"><h2>Sampah Surat</h2><p class="muted">Surat yang dihapus dapat dipulihkan atau dihapus permanen.</p><div id="tableTrash" class="tablewrap"></div></section>
- <section id="pengaturan" class="panel hidden"><h2>Pengaturan</h2><p>Ubah kata sandi admin untuk browser ini.</p><form id="passForm" class="grid2"><div><label>Kata sandi baru</label><input id="newPass" type="password" minlength="6" required></div><div><label>Ulangi kata sandi baru</label><input id="newPass2" type="password" minlength="6" required></div><div class="field-full"><button type="submit">Simpan kata sandi</button></div></form><hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h3>Cadangkan / pulihkan data</h3><p class="muted">Ekspor JSON menyimpan arsip yang tercatat di browser. Simpan cadangan di tempat aman.</p><div class="toolbar"><button class="secondary" id="restoreBtn">Pulihkan dari file JSON</button><input type="file" id="restoreFile" accept="application/json,.json" class="hidden"></div><div class="notice">Privasi: versi ini menyimpan data di browser/perangkat yang digunakan, bukan database online bersama. Login sederhana ini tidak cukup aman untuk melindungi data rahasia dari pengguna teknis atau perangkat bersama. Hindari menyimpan data pribadi yang sensitif.</div></section>
+ <section id="pengaturan" class="panel hidden"><h2>Pengaturan</h2><p>Ubah kata sandi admin untuk browser ini.</p><form id="passForm" class="grid2"><div><label>Kata sandi baru</label><input id="newPass" type="password" minlength="6" required></div><div><label>Ulangi kata sandi baru</label><input id="newPass2" type="password" minlength="6" required></div><div class="field-full"><button type="submit">Simpan kata sandi</button></div></form><hr style="border:0;border-top:1px solid var(--line);margin:22px 0"><h3>Cadangkan / pulihkan data</h3><p class="muted">Ekspor JSON menyimpan arsip yang tercatat di browser. Simpan cadangan di tempat aman.</p><div class="toolbar"><button class="secondary" id="restoreBtn">Pulihkan dari file JSON</button><input type="file" id="restoreFile" accept="application/json,.json" class="hidden"></div><div class="notice">Data arsip disimpan di database online dan hanya dapat diakses oleh akun petugas yang diaktifkan oleh admin.</div></section>
  <div class="footer">MA Darul Hikmah Tamansari · Aplikasi versi lokal</div>
 </div>
 <div id="modal" class="login hidden" style="position:fixed;inset:0;z-index:5;background:#10251dcc;overflow:auto">
@@ -61,35 +61,80 @@
   <p class="note">Lampiran disimpan pada browser ini. File besar mungkin tidak dapat disimpan karena batas kapasitas browser.</p>
  </form>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (()=>{'use strict';
-const $=id=>document.getElementById(id), KEY='darul_hikmah_letters_v1', PASS='darul_hikmah_admin_pass_v1', AUTH='darul_hikmah_auth_v1';
-let data=read(KEY,[]), trash=read('darul_hikmah_trash_v1',[]), editingFile=null;
-function read(k,f){try{return JSON.parse(localStorage.getItem(k))??f}catch{return f}}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(data));localStorage.setItem('darul_hikmah_trash_v1',JSON.stringify(trash));render()}catch(e){alert('Penyimpanan browser penuh. Coba lampiran PDF yang lebih kecil atau unduh cadangan.');}}
-function pass(){return localStorage.getItem(PASS)||'admin123'}
+const $=id=>document.getElementById(id);
+const DB_URL='https://yeiuhzuunjietrfcftjs.supabase.co';
+const DB_KEY='sb_publishable_ydnECvq_FOPQMyDUFim5fA_GdL9ODam';
+const db=window.supabase.createClient(DB_URL,DB_KEY);
+const AUTH='darul_hikmah_supabase_auth_v1';
+let user=null,data=[],trash=[],editingFile=null,kind='masuk',editingId=null;
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function fmt(d){if(!d)return '-';return d}
-function login(){ $('login').classList.add('hidden');$('app').classList.remove('hidden');render()}
-$('loginForm').addEventListener('submit',e=>{e.preventDefault();if($('username').value.trim()==='admin'&&$('password').value===pass()){sessionStorage.setItem(AUTH,'1');$('loginError').textContent='';login()}else $('loginError').textContent='Nama pengguna atau kata sandi salah.'});
-$('logout').onclick=()=>{sessionStorage.removeItem(AUTH);$('app').classList.add('hidden');$('login').classList.remove('hidden');$('password').value=''};
-function tab(name){document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));['masuk','keluar','buat','sampah','pengaturan'].forEach(n=>$(n).classList.toggle('hidden',n!==name));}
+function fmt(d){return d||'-'}
+function notify(msg){alert(msg)}
+function loginView(){ $('login').classList.remove('hidden');$('app').classList.add('hidden') }
+function appView(){ $('login').classList.add('hidden');$('app').classList.remove('hidden');render() }
+async function loadData(){
+ const {data:records,error}=await db.from('arsip_surat').select('id,jenis,data,diubah_pada').order('diubah_pada',{ascending:false});
+ if(error){notify('Gagal memuat arsip dari database: '+error.message);return}
+ data=[];trash=[];
+ (records||[]).forEach(r=>{const item={...r.data,id:r.id,type:r.jenis};if(item._deleted){delete item._deleted;trash.push(item)}else data.push(item)});
+ render();
+}
+async function saveItem(item,isTrash=false){
+ const payload={id:item.id||crypto.randomUUID(),user_id:user.id,jenis:item.type,data:{...item,_deleted:isTrash},diubah_pada:new Date().toISOString()};
+ const {error}=await db.from('arsip_surat').upsert(payload,{onConflict:'id'});
+ if(error){notify('Gagal menyimpan ke database: '+error.message);return false}
+ await loadData();return true;
+}
+async function removeItem(item,permanent=false){
+ if(permanent){const {error}=await db.from('arsip_surat').delete().eq('id',item.id);if(error){notify('Gagal menghapus: '+error.message);return}await loadData();return}
+ await saveItem(item,true);
+}
+async function signIn(e){e.preventDefault();$('loginError').textContent='Memeriksa akun...';
+ const {data:authData,error}=await db.auth.signInWithPassword({email:$('username').value.trim(),password:$('password').value});
+ if(error){$('loginError').textContent='Login gagal. Periksa email dan kata sandi Supabase.';return}
+ user=authData.user;
+ const {data:staff,error:staffErr}=await db.from('madrasah_staff').select('role,enabled').eq('user_id',user.id).maybeSingle();
+ if(staffErr||!staff||!staff.enabled){await db.auth.signOut();user=null;$('loginError').textContent='Akun ini belum diaktifkan sebagai petugas madrasah.';return}
+ $('loginError').textContent='';$('password').value='';sessionStorage.setItem(AUTH,'1');appView();await loadData();
+}
+$('loginForm').addEventListener('submit',signIn);
+$('logout').onclick=async()=>{await db.auth.signOut();sessionStorage.removeItem(AUTH);user=null;loginView()};
+function tab(name){document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));['masuk','keluar','buat','sampah','pengaturan'].forEach(n=>$(n).classList.toggle('hidden',n!==name))}
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.tab));
-function openForm(type,item=null){$('letterForm').reset();$('editId').value=item?.id||'';$('editType').value=type;$('formTitle').textContent=(item?'Ubah':'Tambah')+' surat '+(type==='masuk'?'masuk':'keluar');$('partyLabel').textContent=type==='masuk'?'Pengirim':'Tujuan';$('fNomor').value=item?.nomor||'';$('fTanggal').value=item?.tanggal||new Date().toISOString().slice(0,10);$('fParty').value=item?.pihak||'';$('fPerihal').value=item?.perihal||'';$('fCatatan').value=item?.catatan||'';editingFile=item?.file||null;$('existingFile').textContent=editingFile?'Lampiran tersimpan: '+editingFile.name:'Belum ada lampiran';$('modal').classList.remove('hidden')}
+function openForm(type,item=null){editingId=item?.id||null;$('letterForm').reset();$('editId').value=item?.id||'';$('editType').value=type;$('formTitle').textContent=(item?'Ubah':'Tambah')+' surat '+(type==='masuk'?'masuk':'keluar');$('partyLabel').textContent=type==='masuk'?'Pengirim':'Tujuan';$('fNomor').value=item?.nomor||'';$('fTanggal').value=item?.tanggal||new Date().toISOString().slice(0,10);$('fParty').value=item?.pihak||'';$('fPerihal').value=item?.perihal||'';$('fCatatan').value=item?.catatan||'';editingFile=item?.file||null;$('existingFile').textContent=editingFile?'Lampiran tersimpan: '+editingFile.name:'Belum ada lampiran';$('modal').classList.remove('hidden')}
 $('addMasuk').onclick=()=>openForm('masuk');$('addKeluar').onclick=()=>openForm('keluar');$('cancelForm').onclick=()=>$('modal').classList.add('hidden');
-$('letterForm').onsubmit=async e=>{e.preventDefault();let file=editingFile, f=$('fFile').files[0];if(f){if(f.size>700000){alert('Ukuran PDF lebih dari 700 KB. Gunakan PDF lebih kecil agar tidak memenuhi penyimpanan browser.');return}file={name:f.name,type:f.type,data:await new Promise((res,rej)=>{let r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f)})}}let id=$('editId').value;let obj={id:id||crypto.randomUUID(),type:$('editType').value,nomor:$('fNomor').value.trim(),tanggal:$('fTanggal').value,pihak:$('fParty').value.trim(),perihal:$('fPerihal').value.trim(),catatan:$('fCatatan').value.trim(),file,updated:new Date().toISOString()};if(id)data=data.map(x=>x.id===id?obj:x);else data.unshift(obj);$('modal').classList.add('hidden');save()};
-function table(items,target,mode){if(!items.length){$(target).innerHTML='<div class="empty">Belum ada surat.</div>';return}let rows=items.map(x=>`<tr><td>${esc(x.nomor)}<br><span class="muted">${esc(fmt(x.tanggal))}</span></td><td>${esc(x.pihak)}</td><td>${esc(x.perihal)}${x.catatan?'<br><small class="muted">'+esc(x.catatan)+'</small>':''}${x.file?'<br><a href="#" data-file="'+esc(x.id)+'">📎 '+esc(x.file.name)+'</a>':''}</td><td><div class="actions">${mode==='trash'?`<button class="small" data-act="restore" data-id="${esc(x.id)}">Pulihkan</button><button class="small danger" data-act="delete" data-id="${esc(x.id)}">Hapus permanen</button>`:`<button class="small secondary" data-act="edit" data-id="${esc(x.id)}">Ubah</button><button class="small danger" data-act="trash" data-id="${esc(x.id)}">Hapus</button>`}</div></td></tr>`).join('');$(target).innerHTML=`<table><thead><tr><th>Nomor / tanggal</th><th>${mode==='masuk'?'Pengirim':'Tujuan'}</th><th>Perihal / lampiran</th><th>Aksi</th></tr></thead><tbody>${rows}</tbody></table>`}
-function render(){ $('countMasuk').textContent=data.filter(x=>x.type==='masuk').length;$('countKeluar').textContent=data.filter(x=>x.type==='keluar').length;$('countTrash').textContent=trash.length;let a=$('searchMasuk').value.toLowerCase(),b=$('searchKeluar').value.toLowerCase();table(data.filter(x=>x.type==='masuk'&&JSON.stringify(x).toLowerCase().includes(a)),'tableMasuk','masuk');table(data.filter(x=>x.type==='keluar'&&JSON.stringify(x).toLowerCase().includes(b)),'tableKeluar','keluar');table(trash,'tableTrash','trash')}
+$('letterForm').onsubmit=async e=>{e.preventDefault();let file=editingFile,f=$('fFile').files[0];if(f){if(f.size>700000){notify('Ukuran PDF lebih dari 700 KB. Gunakan PDF lebih kecil.');return}file={name:f.name,type:f.type,data:await new Promise((res,rej)=>{let rd=new FileReader();rd.onload=()=>res(rd.result);rd.onerror=rej;rd.readAsDataURL(f)})}}
+ const obj={id:editingId||crypto.randomUUID(),type:$('editType').value,nomor:$('fNomor').value.trim(),tanggal:$('fTanggal').value,pihak:$('fParty').value.trim(),perihal:$('fPerihal').value.trim(),catatan:$('fCatatan').value.trim(),file,updated:new Date().toISOString()};
+ const ok=await saveItem(obj,false);if(ok)$('modal').classList.add('hidden');
+};
+function table(items,target,mode){if(!items.length){$(target).innerHTML='<div class="empty">Belum ada surat.</div>';return}
+ const rows=items.map(x=>'<tr><td>'+esc(x.nomor)+'<br><span class="muted">'+esc(fmt(x.tanggal))+'</span></td><td>'+esc(x.pihak)+'</td><td>'+esc(x.perihal)+(x.catatan?'<br><small class="muted">'+esc(x.catatan)+'</small>':'')+(x.file?'<br><a href="#" data-file="'+esc(x.id)+'">📎 '+esc(x.file.name)+'</a>':'')+'</td><td><div class="actions">'+(mode==='trash'?'<button class="small" data-act="restore" data-id="'+esc(x.id)+'">Pulihkan</button><button class="small danger" data-act="delete" data-id="'+esc(x.id)+'">Hapus permanen</button>':'<button class="small secondary" data-act="edit" data-id="'+esc(x.id)+'">Ubah</button><button class="small danger" data-act="trash" data-id="'+esc(x.id)+'">Hapus</button>')+'</div></td></tr>').join('');
+ $(target).innerHTML='<table><thead><tr><th>Nomor / tanggal</th><th>'+(mode==='masuk'?'Pengirim':'Tujuan')+'</th><th>Perihal / lampiran</th><th>Aksi</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+function render(){ $('countMasuk').textContent=data.filter(x=>x.type==='masuk').length;$('countKeluar').textContent=data.filter(x=>x.type==='keluar').length;$('countTrash').textContent=trash.length;
+ const a=$('searchMasuk').value.toLowerCase(),b=$('searchKeluar').value.toLowerCase();
+ table(data.filter(x=>x.type==='masuk'&&JSON.stringify(x).toLowerCase().includes(a)),'tableMasuk','masuk');table(data.filter(x=>x.type==='keluar'&&JSON.stringify(x).toLowerCase().includes(b)),'tableKeluar','keluar');table(trash,'tableTrash','trash');
+}
 ['searchMasuk','searchKeluar'].forEach(id=>$(id).addEventListener('input',render));
-document.body.addEventListener('click',e=>{let f=e.target.closest('[data-file]');if(f){e.preventDefault();let x=[...data,...trash].find(y=>y.id===f.dataset.file);if(x?.file?.data){let w=window.open();if(w){w.document.write(`<iframe src="${x.file.data}" style="width:100%;height:100vh;border:0"></iframe>`)}else alert('Izinkan pop-up untuk membuka lampiran.')}else alert('File lampiran tidak tersedia.');return}let b=e.target.closest('[data-act]');if(!b)return;let id=b.dataset.id,act=b.dataset.act;if(act==='edit'){let x=data.find(y=>y.id===id);if(x)openForm(x.type,x)}if(act==='trash'){let x=data.find(y=>y.id===id);if(x&&confirm('Pindahkan surat ini ke sampah?')){data=data.filter(y=>y.id!==id);trash.unshift(x);save()}}if(act==='restore'){let x=trash.find(y=>y.id===id);if(x){trash=trash.filter(y=>y.id!==id);data.unshift(x);save()}}if(act==='delete'&&confirm('Hapus permanen surat ini? Tindakan tidak dapat dibatalkan.')){trash=trash.filter(y=>y.id!==id);save()}});
-$('passForm').onsubmit=e=>{e.preventDefault();if($('newPass').value!==$('newPass2').value){alert('Kata sandi tidak sama.');return}localStorage.setItem(PASS,$('newPass').value);alert('Kata sandi berhasil diubah pada browser ini.');e.target.reset()};
+document.body.addEventListener('click',async e=>{let f=e.target.closest('[data-file]');if(f){e.preventDefault();let x=[...data,...trash].find(y=>y.id===f.dataset.file);if(x?.file?.data){let w=window.open();if(w)w.document.write('<iframe src="'+x.file.data+'" style="width:100%;height:100vh;border:0"></iframe>');else notify('Izinkan pop-up untuk membuka lampiran.')}return}
+ let b=e.target.closest('[data-act]');if(!b)return;const item=[...data,...trash].find(y=>y.id===b.dataset.id);if(!item)return;
+ if(b.dataset.act==='edit')openForm(item.type,item);
+ if(b.dataset.act==='trash'&&confirm('Pindahkan surat ini ke sampah?'))await removeItem(item,false);
+ if(b.dataset.act==='restore')await saveItem(item,false);
+ if(b.dataset.act==='delete'&&confirm('Hapus permanen surat ini? Tindakan tidak dapat dibatalkan.'))await removeItem(item,true);
+});
+$('passForm').onsubmit=async e=>{e.preventDefault();if($('newPass').value!==$('newPass2').value){notify('Kata sandi tidak sama.');return}
+ const {error}=await db.auth.updateUser({password:$('newPass').value});if(error){notify('Gagal mengubah kata sandi: '+error.message);return}notify('Kata sandi akun berhasil diubah.');e.target.reset()};
 $('backup').onclick=()=>download('cadangan-surat-darul-hikmah.json',JSON.stringify({data,trash,created:new Date().toISOString()},null,2),'application/json');
-$('exportCsv').onclick=()=>{let rows=[['Jenis','Nomor','Tanggal','Pengirim/Tujuan','Perihal','Catatan'],...data.map(x=>[x.type,x.nomor,x.tanggal,x.pihak,x.perihal,x.catatan])];download('arsip-surat-darul-hikmah.csv','\ufeff'+rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n'),'text/csv;charset=utf-8')};
-function download(name,content,type){let a=document.createElement('a'),u=URL.createObjectURL(new Blob([content],{type}));a.href=u;a.download=name;a.click();URL.revokeObjectURL(u)}
-$('restoreBtn').onclick=()=>$('restoreFile').click();$('restoreFile').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let o=JSON.parse(await f.text());if(!Array.isArray(o.data)||!Array.isArray(o.trash))throw Error();if(confirm('Pulihkan cadangan? Data saat ini akan diganti.')){data=o.data;trash=o.trash;save();alert('Cadangan berhasil dipulihkan.')}}catch{alert('File cadangan tidak valid.')}e.target.value=''};
-function updateDraft(){let val=id=>$(id).value.trim();let nom=val('dNomor')||'-',tgl=val('dTanggal')||'-',tujuan=val('dTujuan')||'-',perihal=val('dPerihal')||'-',isi=val('dIsi')||'Isi surat akan tampil di sini.',nama=val('dNama')||'-',jab=val('dJabatan')||'-';$('draftPaper').innerHTML=`<div class="line"><h2>MA DARUL HIKMAH TAMANSARI</h2><b>${esc(val('dJenis').toUpperCase())}</b></div><p>Nomor: ${esc(nom)}</p><p>Perihal: ${esc(perihal)}</p><p>${esc(tujuan)}</p><p>Dengan hormat,</p><p>${esc(isi)}</p><p style="text-align:right">${esc(tgl)}<br><br><br><b>${esc(nama)}</b><br>${esc(jab)}</p>`}
+$('exportCsv').onclick=()=>{const rs=[['Jenis','Nomor','Tanggal','Pengirim/Tujuan','Perihal','Catatan'],...data.map(x=>[x.type,x.nomor,x.tanggal,x.pihak,x.perihal,x.catatan])];download('arsip-surat-darul-hikmah.csv','\ufeff'+rs.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n'),'text/csv;charset=utf-8')};
+function download(name,content,type){let a=document.createElement('a'),u=URL.createObjectURL(new Blob([content],{type}));a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
+$('restoreBtn').onclick=()=>$('restoreFile').click();$('restoreFile').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{const o=JSON.parse(await f.text());if(!Array.isArray(o.data)||!Array.isArray(o.trash))throw Error();if(!confirm('Pulihkan cadangan? Data saat ini akan ditambah dengan data cadangan.'))return;for(const x of [...o.data,...o.trash])await saveItem({...x,id:crypto.randomUUID()},Boolean(o.trash.includes(x)));notify('Proses pemulihan selesai.')}catch{notify('File cadangan tidak valid atau gagal dipulihkan.')}e.target.value=''};
+function updateDraft(){const val=id=>$(id).value.trim();const safe=s=>esc(s).replace(/\n/g,'<br>');$('draftPaper').innerHTML='<div class="line"><h2>MA DARUL HIKMAH TAMANSARI</h2><b>'+esc(val('dJenis').toUpperCase())+'</b></div><p>Nomor: '+esc(val('dNomor')||'-')+'</p><p>Perihal: '+esc(val('dPerihal')||'-')+'</p><p>'+esc(val('dTujuan')||'-')+'</p><p>Dengan hormat,</p><p>'+safe(val('dIsi')||'Isi surat akan tampil di sini.')+'</p><p style="text-align:right">'+esc(val('dTanggal')||'-')+'<br><br><br><b>'+esc(val('dNama')||'-')+'</b><br>'+esc(val('dJabatan')||'-')+'</p>'}
 $('previewDraft').onclick=updateDraft;$('printDraft').onclick=()=>{updateDraft();window.print()};
-if(sessionStorage.getItem(AUTH)==='1')login();else{$('login').classList.remove('hidden');$('app').classList.add('hidden')}
+(async()=>{const {data:sessionData}=await db.auth.getSession();if(sessionData.session){user=sessionData.session.user;const {data:staff}=await db.from('madrasah_staff').select('role,enabled').eq('user_id',user.id).maybeSingle();if(staff?.enabled){appView();await loadData();return}await db.auth.signOut()}loginView()})();
 })();
 </script>
 </body>
